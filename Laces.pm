@@ -6,9 +6,9 @@ use overload
     '.' => \&RDF::Laces::Impl::cat,
     '""' => \&RDF::Laces::Impl::uri,
     '%{}' => \&RDF::Laces::Impl::get,
-    '&{}' => \&RDF::Laces::Impl::anon;
+    '&{}' => \&RDF::Laces::Impl::resource;
 
-our $VERSION = 0.01;
+our $VERSION = 0.02;
 
 our $rdf = __PACKAGE__->new('http://www.w3.org/1999/02/22-rdf-syntax-ns#');
 our $rdfs = __PACKAGE__->new('http://www.w3.org/2000/01/rdf-schema#');
@@ -46,7 +46,6 @@ sub AUTOLOAD {
 	    }
 	}
 	printf " .\n";
-#	printf "<%s> <%s> <%s> .\n", $self, $self->{prefix} . $meth, "@_";
 	return $self;   # allow more statements!
     }
 
@@ -63,19 +62,12 @@ sub AUTOLOAD {
 	# scalar context!
 	return $self->new(
 	    %$self,
-	    prefix => $self->{prefixes}{$meth}
+	    prefix => $self->{prefixes}{$meth},
+	    root => $self->{prefixes}{$meth}
 	);
     }
 
     return;
-    # check is being run in scalar or list context. If scalar, expect a prefix
-    if($meth eq 'rdf') {
-	my $new = $self->new(
-	    %$self,
-	    prefix => 'http://www.w3.org/1999/02/22-rdf-syntax-ns#'
-	);
-	return $new;
-    }
 }
 
 package RDF::Laces::Impl;
@@ -111,12 +103,12 @@ sub get {
     return \%hash;
 }
 
-# return a subref which points at an anonymous node
 my $anonidx = 0;
-sub anon {
+sub resource {
     my $self = shift;
     return sub {
-	return $self->new(%$self, path => "_:anon" . ++$anonidx);
+        my $path = shift || ("_:anon" . ++$anonidx);
+	return $self->new(%$self, path => $path);
     }
 }
 
@@ -127,6 +119,18 @@ sub uri {
 sub addprefix {
     my($self, $prefix, $uri) = @_;
     $self->{prefixes}{$prefix} = $uri;
+}
+
+sub withfragment {
+    my $self = shift;
+    my $frag = shift;
+    my $base = $self->{root} || $self->{path};
+
+    return $self->new(
+	%$self,
+	root => $base,
+	path => $base . $frag
+    );
 }
 
 package RDF::Laces::Tie;
@@ -142,7 +146,7 @@ sub TIEHASH {
 sub FETCH {
     my $self = shift;
     my $key = shift;
-    return $self->{inst} . $key;
+    RDF::Laces::Impl::withfragment($self->{inst}, $key);
 }
 
 sub STORE {
